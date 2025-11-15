@@ -209,7 +209,7 @@ class ProductCard extends StatelessWidget {
 // 4. Crypto Payment Service
 class CryptoPaymentService {
   // Replace with your Railway deployment URL
-  static const String baseUrl = 'https://your-app.up.railway.app';
+  static const String baseUrl = 'https://fpay-production.up.railway.app';
 
   Future<Map<String, dynamic>> startMonitoring({
     required String address,
@@ -303,15 +303,13 @@ class _CryptoPaymentScreenState extends State<CryptoPaymentScreen> {
   double currentBalance = 0.0;
 
   final Map<String, String> networkNames = {
-    'polygon': 'Polygon (Recommended)',
-    'bsc': 'BSC',
-    'ethereum': 'Ethereum',
+    'polygon': 'Polygon (Recommended - Lowest Fees)',
+    'bsc': 'BSC (Binance Smart Chain)',
   };
 
   final Map<String, String> networkFees = {
     'polygon': '~\$0.01',
     'bsc': '~\$0.20',
-    'ethereum': '\$5-50',
   };
 
   @override
