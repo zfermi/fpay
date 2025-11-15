@@ -69,6 +69,8 @@ class Web3Listener {
 
       try {
         const provider = new ethers.JsonRpcProvider(config.rpc);
+        // Set polling interval to 25 seconds (default is 4 seconds)
+        provider.pollingInterval = 25000;
         this.providers[networkName] = provider;
 
         // Initialize USDT contract
