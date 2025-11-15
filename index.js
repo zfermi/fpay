@@ -1,9 +1,21 @@
 const express = require('express');
 const { ethers } = require('ethers');
 const axios = require('axios');
+const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
+
+// CORS configuration for Flutter web apps
+const corsOptions = {
+  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // ERC20 ABI for USDT/USDC
