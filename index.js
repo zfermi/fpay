@@ -297,6 +297,106 @@ app.post('/api/check-balance', async (req, res) => {
   }
 });
 
+// NEW: Verify payment by checking for actual transactions
+app.post('/api/verify-payment', async (req, res) => {
+  const { address, invoiceId, expectedAmount, network, token } = req.body;
+
+  if (!address || !invoiceId || !expectedAmount || !network || !token) {
+    return res.status(400).json({
+      error: 'Missing required parameters',
+      required: ['address', 'invoiceId', 'expectedAmount', 'network', 'token']
+    });
+  }
+
+  try {
+    const contract = listener.contracts[`${network}_${token}`];
+    const provider = listener.providers[network];
+
+    if (!contract || !provider) {
+      return res.status(400).json({
+        error: `Invalid network or token: ${network}/${token}`,
+        supported: Object.keys(listener.contracts)
+      });
+    }
+
+    // Get current block
+    const currentBlock = await provider.getBlockNumber();
+
+    // Calculate blocks to search (30 minutes)
+    const blocksPerHalfHour = {
+      polygon: 900,   // ~2 sec/block
+      bsc: 600,       // ~3 sec/block
+      ethereum: 150   // ~12 sec/block
+    };
+    const blocksToSearch = blocksPerHalfHour[network] || 150;
+    const fromBlock = Math.max(0, currentBlock - blocksToSearch);
+
+    console.log(`Searching for payment: ${address}, invoice: ${invoiceId}, amount: $${expectedAmount}, network: ${network}, token: ${token}`);
+    console.log(`Searching blocks ${fromBlock} to ${currentBlock} (${blocksToSearch} blocks)`);
+
+    // Query Transfer events TO our address
+    const filter = contract.filters.Transfer(null, address);
+    const events = await contract.queryFilter(filter, fromBlock, currentBlock);
+
+    console.log(`Found ${events.length} transfer events to address ${address}`);
+
+    // Get decimals for amount calculation
+    const decimals = await contract.decimals();
+
+    // Parse expected amount with tolerance (5%)
+    const expectedAmountWei = ethers.parseUnits(expectedAmount.toString(), decimals);
+    const minAmount = (expectedAmountWei * 95n) / 100n;
+    const maxAmount = (expectedAmountWei * 105n) / 100n;
+
+    // Search for matching transaction (most recent first)
+    for (const event of events.reverse()) {
+      const amount = event.args.value;
+
+      // Check if amount matches (within tolerance)
+      if (amount >= minAmount && amount <= maxAmount) {
+        // Get transaction details
+        const tx = await event.getTransaction();
+        const receipt = await event.getTransactionReceipt();
+        const block = await provider.getBlock(event.blockNumber);
+
+        const amountFormatted = ethers.formatUnits(amount, decimals);
+
+        console.log(`✓ Found matching transaction: ${tx.hash}, amount: ${amountFormatted}`);
+
+        // Return transaction details
+        return res.json({
+          found: true,
+          verified: true,
+          transaction: {
+            hash: tx.hash,
+            from: tx.from,
+            to: tx.to || address,
+            amount: amountFormatted,
+            confirmations: receipt.confirmations || 0,
+            timestamp: new Date(block.timestamp * 1000).toISOString(),
+            blockNumber: receipt.blockNumber
+          }
+        });
+      }
+    }
+
+    // No matching transaction found
+    console.log(`✗ No matching transaction found for invoice ${invoiceId}`);
+    return res.json({
+      found: false,
+      verified: false,
+      transaction: null
+    });
+
+  } catch (error) {
+    console.error('Error verifying payment:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
 // Initialize listener
 const listener = new Web3Listener();
 
