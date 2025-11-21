@@ -322,23 +322,46 @@ app.post('/api/verify-payment', async (req, res) => {
     // Get current block
     const currentBlock = await provider.getBlockNumber();
 
-    // Calculate blocks to search (30 minutes)
+    // Calculate blocks to search (30 minutes) - but limit to prevent RPC errors
     const blocksPerHalfHour = {
       polygon: 900,   // ~2 sec/block
       bsc: 600,       // ~3 sec/block
       ethereum: 150   // ~12 sec/block
     };
-    const blocksToSearch = blocksPerHalfHour[network] || 150;
-    const fromBlock = Math.max(0, currentBlock - blocksToSearch);
+
+    // RPC providers often limit block range, so chunk the search
+    const maxBlocksPerQuery = {
+      polygon: 100,   // Polygon RPC limit
+      bsc: 100,       // BSC RPC limit
+      ethereum: 100   // Ethereum RPC limit
+    };
+
+    const totalBlocksToSearch = blocksPerHalfHour[network] || 150;
+    const maxBlocks = maxBlocksPerQuery[network] || 100;
+    const fromBlock = Math.max(0, currentBlock - totalBlocksToSearch);
 
     console.log(`Searching for payment: ${address}, invoice: ${invoiceId}, amount: $${expectedAmount}, network: ${network}, token: ${token}`);
-    console.log(`Searching blocks ${fromBlock} to ${currentBlock} (${blocksToSearch} blocks)`);
+    console.log(`Searching blocks ${fromBlock} to ${currentBlock} (${totalBlocksToSearch} blocks in chunks of ${maxBlocks})`);
 
-    // Query Transfer events TO our address
+    // Query Transfer events TO our address in chunks
     const filter = contract.filters.Transfer(null, address);
-    const events = await contract.queryFilter(filter, fromBlock, currentBlock);
+    let allEvents = [];
 
-    console.log(`Found ${events.length} transfer events to address ${address}`);
+    // Search in chunks to avoid "block range too large" errors
+    for (let start = fromBlock; start <= currentBlock; start += maxBlocks) {
+      const end = Math.min(start + maxBlocks - 1, currentBlock);
+      try {
+        const chunkEvents = await contract.queryFilter(filter, start, end);
+        allEvents = allEvents.concat(chunkEvents);
+        console.log(`  Block range ${start}-${end}: Found ${chunkEvents.length} events`);
+      } catch (err) {
+        console.error(`  Error querying blocks ${start}-${end}:`, err.message);
+        // Continue with next chunk
+      }
+    }
+
+    console.log(`Total: Found ${allEvents.length} transfer events to address ${address}`);
+    const events = allEvents;
 
     // Get decimals for amount calculation
     const decimals = await contract.decimals();
